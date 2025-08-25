@@ -1,0 +1,8 @@
+{
+    "watch": [
+        "src",
+        ".env"
+    ],
+    "ext": "ts,js,xml,env",
+    "exec": "npx ts-node src/server.ts"
+}
