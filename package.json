@@ -4,7 +4,8 @@
   "description": "Twilio real-time server with TypeScript",
   "main": "dist/server.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && npm run copy-assets",
+    "copy-assets": "node -e \"require('fs').copyFileSync('src/twiml.xml', 'dist/twiml.xml')\"",
     "start": "node dist/server.js",
     "dev": "nodemon",
     "test": "echo \"Error: no test specified\" && exit 1"
