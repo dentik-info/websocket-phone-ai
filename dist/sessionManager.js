@@ -118,7 +118,7 @@ function tryConnectModel() {
         return;
     if (isOpen(session.modelConn))
         return;
-    session.modelConn = new ws_1.WebSocket("wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17", {
+    session.modelConn = new ws_1.WebSocket("wss://api.openai.com/v1/realtime?model=gpt-realtime-2025-08-28", {
         headers: {
             Authorization: `Bearer ${session.openAIApiKey}`,
             "OpenAI-Beta": "realtime=v1",
@@ -167,21 +167,21 @@ function handleModelMessage(data) {
             if (item.type === "function_call") {
                 handleFunctionCall(item)
                     .then((output) => {
-                    if (session.modelConn) {
-                        jsonSend(session.modelConn, {
-                            type: "conversation.item.create",
-                            item: {
-                                type: "function_call_output",
-                                call_id: item.call_id,
-                                output: JSON.stringify(output),
-                            },
-                        });
-                        jsonSend(session.modelConn, { type: "response.create" });
-                    }
-                })
+                        if (session.modelConn) {
+                            jsonSend(session.modelConn, {
+                                type: "conversation.item.create",
+                                item: {
+                                    type: "function_call_output",
+                                    call_id: item.call_id,
+                                    output: JSON.stringify(output),
+                                },
+                            });
+                            jsonSend(session.modelConn, { type: "response.create" });
+                        }
+                    })
                     .catch((err) => {
-                    console.error("Error handling function call:", err);
-                });
+                        console.error("Error handling function call:", err);
+                    });
             }
             break;
         }
