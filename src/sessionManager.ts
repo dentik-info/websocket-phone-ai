@@ -96,6 +96,12 @@ function handleTwilioMessage(data: RawData) {
         });
       }
       break;
+    case "stop": // <--- Twilio signalisiert Call-Ende
+      console.log("Twilio stream stop received – ending call.");
+      if (isOpen(session.frontendConn)) {
+        jsonSend(session.frontendConn, { type: "call.ended", streamSid: session.streamSid });
+      }
+      break;
     case "close":
       closeAllConnections();
       break;
