@@ -18,12 +18,18 @@ const ws_1 = require("ws");
 const functionHandlers_1 = __importDefault(require("./functionHandlers"));
 let session = {};
 function handleCallConnection(ws, openAIApiKey) {
+    console.log("[Twilio] WS connected");
     cleanupConnection(session.twilioConn);
     session.twilioConn = ws;
     session.openAIApiKey = openAIApiKey;
     ws.on("message", handleTwilioMessage);
-    ws.on("error", ws.close);
-    ws.on("close", () => {
+    ws.on("error", (err) => {
+        console.error("[Twilio] WS error:", err);
+        ws.close();
+    });
+    ws.on("close", (code, reason) => {
+        var _a;
+        console.log(`[Twilio] WS closed code=${code} reason=${((_a = reason === null || reason === void 0 ? void 0 : reason.toString) === null || _a === void 0 ? void 0 : _a.call(reason)) || ""}`);
         cleanupConnection(session.modelConn);
         cleanupConnection(session.twilioConn);
         session.twilioConn = undefined;
@@ -37,10 +43,17 @@ function handleCallConnection(ws, openAIApiKey) {
     });
 }
 function handleFrontendConnection(ws) {
+    console.log("[Frontend] WS connected");
     cleanupConnection(session.frontendConn);
     session.frontendConn = ws;
     ws.on("message", handleFrontendMessage);
-    ws.on("close", () => {
+    ws.on("error", (err) => {
+        console.error("[Frontend] WS error:", err);
+        ws.close();
+    });
+    ws.on("close", (code, reason) => {
+        var _a;
+        console.log(`[Frontend] WS closed code=${code} reason=${((_a = reason === null || reason === void 0 ? void 0 : reason.toString) === null || _a === void 0 ? void 0 : _a.call(reason)) || ""}`);
         cleanupConnection(session.frontendConn);
         session.frontendConn = undefined;
         if (!session.twilioConn && !session.modelConn)
@@ -77,11 +90,13 @@ function handleFunctionCall(item) {
     });
 }
 function handleTwilioMessage(data) {
+    var _a;
     const msg = parseMessage(data);
     if (!msg)
         return;
     switch (msg.event) {
         case "start":
+            console.log("[Twilio] stream start:", (_a = msg.start) === null || _a === void 0 ? void 0 : _a.streamSid);
             session.streamSid = msg.start.streamSid;
             session.latestMediaTimestamp = 0;
             session.lastAssistantItem = undefined;
@@ -97,9 +112,18 @@ function handleTwilioMessage(data) {
                 });
             }
             break;
+        case "stop": // <--- Twilio signalisiert Call-Ende
+            console.log("Twilio stream stop received – ending call.");
+            if (isOpen(session.frontendConn)) {
+                jsonSend(session.frontendConn, { type: "call.ended", streamSid: session.streamSid });
+            }
+            break;
         case "close":
+            console.log("[Twilio] stream close event – cleaning up.");
             closeAllConnections();
             break;
+        default:
+            console.log("[Twilio] unhandled event:", msg.event);
     }
 }
 function handleFrontendMessage(data) {
@@ -125,15 +149,30 @@ function tryConnectModel() {
         },
     });
     session.modelConn.on("open", () => {
+        console.log("[Model] WS connected");
         const config = session.saved_config || {};
         jsonSend(session.modelConn, {
             type: "session.update",
-            session: Object.assign({ modalities: ["text", "audio"], turn_detection: { type: "server_vad" }, voice: "ash", input_audio_transcription: { model: "whisper-1" }, input_audio_format: "g711_ulaw", output_audio_format: "g711_ulaw" }, config),
+            session: Object.assign({ modalities: ["text", "audio"], turn_detection: {
+                    type: 'server_vad',
+                    threshold: 0.8, // Sensitivity (0.0 to 1.0)
+                    prefix_padding_ms: 300, // Audio to include before speech starts
+                    silence_duration_ms: 200 // Silence before marking speech as stopped
+                }, voice: "ash", input_audio_transcription: { model: "whisper-1" }, 
+                // "gpt-4o-mini-transcribe"
+                input_audio_format: "g711_ulaw", output_audio_format: "g711_ulaw" }, config),
         });
     });
     session.modelConn.on("message", handleModelMessage);
-    session.modelConn.on("error", closeModel);
-    session.modelConn.on("close", closeModel);
+    session.modelConn.on("error", (err) => {
+        console.error("[Model] WS error:", err);
+        closeModel();
+    });
+    session.modelConn.on("close", (code, reason) => {
+        var _a;
+        console.log(`[Model] WS closed code=${code} reason=${((_a = reason === null || reason === void 0 ? void 0 : reason.toString) === null || _a === void 0 ? void 0 : _a.call(reason)) || ""}`);
+        closeModel();
+    });
 }
 function handleModelMessage(data) {
     const event = parseMessage(data);
@@ -167,21 +206,21 @@ function handleModelMessage(data) {
             if (item.type === "function_call") {
                 handleFunctionCall(item)
                     .then((output) => {
-                        if (session.modelConn) {
-                            jsonSend(session.modelConn, {
-                                type: "conversation.item.create",
-                                item: {
-                                    type: "function_call_output",
-                                    call_id: item.call_id,
-                                    output: JSON.stringify(output),
-                                },
-                            });
-                            jsonSend(session.modelConn, { type: "response.create" });
-                        }
-                    })
+                    if (session.modelConn) {
+                        jsonSend(session.modelConn, {
+                            type: "conversation.item.create",
+                            item: {
+                                type: "function_call_output",
+                                call_id: item.call_id,
+                                output: JSON.stringify(output),
+                            },
+                        });
+                        jsonSend(session.modelConn, { type: "response.create" });
+                    }
+                })
                     .catch((err) => {
-                        console.error("Error handling function call:", err);
-                    });
+                    console.error("Error handling function call:", err);
+                });
             }
             break;
         }
@@ -217,6 +256,7 @@ function closeModel() {
         session = {};
 }
 function closeAllConnections() {
+    console.log("[Server] Closing all connections");
     if (session.twilioConn) {
         session.twilioConn.close();
         session.twilioConn = undefined;

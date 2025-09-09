@@ -16,13 +16,20 @@ interface Session {
 let session: Session = {};
 
 export function handleCallConnection(ws: WebSocket, openAIApiKey: string) {
+  console.log("[Twilio] WS connected");
   cleanupConnection(session.twilioConn);
   session.twilioConn = ws;
   session.openAIApiKey = openAIApiKey;
 
   ws.on("message", handleTwilioMessage);
-  ws.on("error", ws.close);
-  ws.on("close", () => {
+  ws.on("error", (err) => {
+    console.error("[Twilio] WS error:", err);
+    ws.close();
+  });
+  ws.on("close", (code, reason) => {
+    console.log(
+      `[Twilio] WS closed code=${code} reason=${(reason as any)?.toString?.() || ""}`
+    );
     cleanupConnection(session.modelConn);
     cleanupConnection(session.twilioConn);
     session.twilioConn = undefined;
@@ -36,11 +43,19 @@ export function handleCallConnection(ws: WebSocket, openAIApiKey: string) {
 }
 
 export function handleFrontendConnection(ws: WebSocket) {
+  console.log("[Frontend] WS connected");
   cleanupConnection(session.frontendConn);
   session.frontendConn = ws;
 
   ws.on("message", handleFrontendMessage);
-  ws.on("close", () => {
+  ws.on("error", (err) => {
+    console.error("[Frontend] WS error:", err);
+    ws.close();
+  });
+  ws.on("close", (code, reason) => {
+    console.log(
+      `[Frontend] WS closed code=${code} reason=${(reason as any)?.toString?.() || ""}`
+    );
     cleanupConnection(session.frontendConn);
     session.frontendConn = undefined;
     if (!session.twilioConn && !session.modelConn) session = {};
@@ -81,6 +96,7 @@ function handleTwilioMessage(data: RawData) {
 
   switch (msg.event) {
     case "start":
+      console.log("[Twilio] stream start:", msg.start?.streamSid);
       session.streamSid = msg.start.streamSid;
       session.latestMediaTimestamp = 0;
       session.lastAssistantItem = undefined;
@@ -103,8 +119,11 @@ function handleTwilioMessage(data: RawData) {
       }
       break;
     case "close":
+      console.log("[Twilio] stream close event – cleaning up.");
       closeAllConnections();
       break;
+    default:
+      console.log("[Twilio] unhandled event:", msg.event);
   }
 }
 
@@ -137,6 +156,7 @@ function tryConnectModel() {
   );
 
   session.modelConn.on("open", () => {
+    console.log("[Model] WS connected");
     const config = session.saved_config || {};
     jsonSend(session.modelConn, {
       type: "session.update",
@@ -159,8 +179,16 @@ function tryConnectModel() {
   });
 
   session.modelConn.on("message", handleModelMessage);
-  session.modelConn.on("error", closeModel);
-  session.modelConn.on("close", closeModel);
+  session.modelConn.on("error", (err) => {
+    console.error("[Model] WS error:", err);
+    closeModel();
+  });
+  session.modelConn.on("close", (code, reason) => {
+    console.log(
+      `[Model] WS closed code=${code} reason=${(reason as any)?.toString?.() || ""}`
+    );
+    closeModel();
+  });
 }
 
 function handleModelMessage(data: RawData) {
@@ -258,6 +286,7 @@ function closeModel() {
 }
 
 function closeAllConnections() {
+  console.log("[Server] Closing all connections");
   if (session.twilioConn) {
     session.twilioConn.close();
     session.twilioConn = undefined;
