@@ -69,6 +69,36 @@ wss.on("connection", (ws: WebSocket, req: IncomingMessage) => {
     if (currentCall) currentCall.close();
     currentCall = ws;
     handleCallConnection(currentCall, OPENAI_API_KEY);
+
+    // Notify frontend logs socket that a call started (optional)
+    try {
+      if (currentLogs && currentLogs.readyState === WebSocket.OPEN) {
+        currentLogs.send(
+          JSON.stringify({
+            type: "call.started",
+          })
+        );
+      }
+    } catch {
+      // ignore
+    }
+
+    // When the call socket closes, notify the frontend so it can react (e.g., send email)
+    currentCall.on("close", (code: number, reason: Buffer) => {
+      try {
+        if (currentLogs && currentLogs.readyState === WebSocket.OPEN) {
+          currentLogs.send(
+            JSON.stringify({
+              type: "call.ended",
+              code,
+              reason: reason?.toString?.() || "",
+            })
+          );
+        }
+      } catch {
+        // ignore
+      }
+    });
   } else if (type === "logs") {
     if (currentLogs) currentLogs.close();
     currentLogs = ws;
