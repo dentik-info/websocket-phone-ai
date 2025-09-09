@@ -153,14 +153,17 @@ function tryConnectModel() {
         const config = session.saved_config || {};
         jsonSend(session.modelConn, {
             type: "session.update",
-            session: Object.assign({ modalities: ["text", "audio"], turn_detection: {
+            session: Object.assign({
+                modalities: ["text", "audio"], turn_detection: {
                     type: 'server_vad',
                     threshold: 0.8, // Sensitivity (0.0 to 1.0)
                     prefix_padding_ms: 300, // Audio to include before speech starts
                     silence_duration_ms: 200 // Silence before marking speech as stopped
-                }, voice: "ash", input_audio_transcription: { model: "whisper-1" }, 
+                }, voice: "ash", input_audio_transcription: { model: "gpt-4o-mini-transcribe" },
                 // "gpt-4o-mini-transcribe"
-                input_audio_format: "g711_ulaw", output_audio_format: "g711_ulaw" }, config),
+                //"whisper-1"
+                input_audio_format: "g711_ulaw", output_audio_format: "g711_ulaw"
+            }, config),
         });
     });
     session.modelConn.on("message", handleModelMessage);
@@ -206,21 +209,21 @@ function handleModelMessage(data) {
             if (item.type === "function_call") {
                 handleFunctionCall(item)
                     .then((output) => {
-                    if (session.modelConn) {
-                        jsonSend(session.modelConn, {
-                            type: "conversation.item.create",
-                            item: {
-                                type: "function_call_output",
-                                call_id: item.call_id,
-                                output: JSON.stringify(output),
-                            },
-                        });
-                        jsonSend(session.modelConn, { type: "response.create" });
-                    }
-                })
+                        if (session.modelConn) {
+                            jsonSend(session.modelConn, {
+                                type: "conversation.item.create",
+                                item: {
+                                    type: "function_call_output",
+                                    call_id: item.call_id,
+                                    output: JSON.stringify(output),
+                                },
+                            });
+                            jsonSend(session.modelConn, { type: "response.create" });
+                        }
+                    })
                     .catch((err) => {
-                    console.error("Error handling function call:", err);
-                });
+                        console.error("Error handling function call:", err);
+                    });
             }
             break;
         }
